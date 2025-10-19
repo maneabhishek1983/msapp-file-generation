@@ -1,0 +1,50 @@
+{
+  "app": {
+    "name": "SamplePowerApp",
+    "displayName": "Sample Power App",
+    "description": "A sample Power Apps application generated from source code",
+    "version": "1.0.0.0",
+    "publisher": {
+      "name": "MyOrganization",
+      "displayName": "My Organization",
+      "prefix": "myorg",
+      "uniqueName": "myorg_publisher"
+    }
+  },
+  "screens": [
+    "HomeScreen",
+    "DetailScreen"
+  ],
+  "components": [
+    "HeaderComponent"
+  ],
+  "connections": [
+    {
+      "name": "SharePointConnection",
+      "type": "sharepoint",
+      "displayName": "SharePoint Online",
+      "parameters": {
+        "siteUrl": "https://myorg.sharepoint.com/sites/mysite"
+      }
+    }
+  ],
+  "resources": [
+    {
+      "name": "AppIcon",
+      "type": "icon",
+      "path": "resources/icons/app-icon.png",
+      "mimeType": "image/png"
+    },
+    {
+      "name": "Logo",
+      "type": "image",
+      "path": "resources/images/logo.png",
+      "mimeType": "image/png"
+    }
+  ],
+  "settings": {
+    "enableFormulas": true,
+    "enableComponents": true,
+    "theme": "default"
+  }
+}
