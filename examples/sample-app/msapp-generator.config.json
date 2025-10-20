@@ -1,0 +1,26 @@
+{
+  "app": {
+    "name": "SampleComplianceApp",
+    "displayName": "Sample Compliance App",
+    "description": "Example configuration used by automated tests",
+    "version": "1.0.0.0",
+    "publisher": {
+      "name": "Contoso",
+      "displayName": "Contoso Sample Publisher",
+      "prefix": "cts",
+      "uniqueName": "cts"
+    }
+  },
+  "screens": [
+    "screens/*.fx"
+  ],
+  "components": [
+    "components/*.fx"
+  ],
+  "connections": [],
+  "resources": [],
+  "settings": {
+    "enableFormulas": true,
+    "enableComponents": true
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "applications": [
+    {
+      "name": "SampleApp1",
+      "sourceDir": "./examples/sample-app",
+      "outputPath": "./dist/sample-app-1.msapp",
+      "configFile": "./examples/msapp-generator.config.json",
+      "validate": true,
+      "dryRun": false
+    },
+    {
+      "name": "SampleApp2",
+      "sourceDir": "./examples/sample-app",
+      "outputPath": "./dist/sample-app-2.msapp",
+      "configFile": "./examples/msapp-generator.config.json",
+      "validate": true,
+      "dryRun": false
+    }
+  ],
+  "parallel": true,
+  "generateReport": true,
+  "reportPath": "./dist/batch-report.json",
+  "globalOptions": {
+    "verbose": true,
+    "validate": true
+  }
+}
