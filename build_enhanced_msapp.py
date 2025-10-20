@@ -103,7 +103,7 @@ Screens:
             Height: |+
               =120
             Items: |+
-              =[{Title:"Assessments Due",Value:Text(varKPIs.AssessmentsDue),Icon:"📋",Color:varTheme.Info},{Title:"Awaiting Review",Value:Text(varKPIs.AwaitingReview),Icon:"⏳",Color:varTheme.Warning},{Title:"Favourable %",Value:Text(varKPIs.FavourablePercentage)&"%",Icon:"✅",Color:varTheme.Success}]
+              =[{Title:"Assessments Due",Value:Text(varKPIs.AssessmentsDue),Icon:"[A]",Color:varTheme.Info},{Title:"Awaiting Review",Value:Text(varKPIs.AwaitingReview),Icon:"[R]",Color:varTheme.Warning},{Title:"Favourable %",Value:Text(varKPIs.FavourablePercentage)&"%",Icon:"[OK]",Color:varTheme.Success}]
             TemplatePadding: |+
               =10
             TemplateSize: |+
@@ -412,7 +412,7 @@ Screens:
             ),
             self.generator.create_gallery(
                 "KPIGallery", "HomeScreen",
-                '[{Title:"Assessments Due",Value:Text(varKPIs.AssessmentsDue),Icon:"📋",Color:varTheme.Info},{Title:"Awaiting Review",Value:Text(varKPIs.AwaitingReview),Icon:"⏳",Color:varTheme.Warning},{Title:"Favourable %",Value:Text(varKPIs.FavourablePercentage)&"%",Icon:"✅",Color:varTheme.Success}]',
+                '[{Title:"Assessments Due",Value:Text(varKPIs.AssessmentsDue),Icon:"[A]",Color:varTheme.Info},{Title:"Awaiting Review",Value:Text(varKPIs.AwaitingReview),Icon:"[R]",Color:varTheme.Warning},{Title:"Favourable %",Value:Text(varKPIs.FavourablePercentage)&"%",Icon:"[OK]",Color:varTheme.Success}]',
                 "20", "140", "Parent.Width - 40", "120",
                 variant="galleryHorizontal",
                 template_size="(Parent.Width - 80) / 3",
