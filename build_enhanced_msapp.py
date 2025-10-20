@@ -590,8 +590,29 @@ Screens:
             print(f"      Written: {json_size:,} bytes")
             print(f"      Controls: {children_count} top-level controls")
 
+            # 3a. Update Properties.json with correct ControlCount
+            print("[3a/6] Updating Properties.json with correct ControlCount...")
+            props_path = temp_dir / "Properties.json"
+            with open(props_path, 'r', encoding='utf-8') as f:
+                props = json.load(f)
+
+            # Count ALL controls in the app
+            props["ControlCount"] = {
+                "screen": 8,
+                "rectangle": 3,  # HeaderBanner, KPICard, SiteCard
+                "label": 6,      # HeaderTitle, DashboardLabel, SitesLabel, KPIIcon, KPITitle, KPIValue, SiteNameLabel, RegionLabel, DesignationLabel
+                "gallery": 2,    # KPIGallery, SitesGallery
+                "button": 1,     # CreateButton
+                "TestSuite": 1,
+                "TestCase": 1
+            }
+
+            with open(props_path, 'w', encoding='utf-8') as f:
+                json.dump(props, f, indent=2)
+            print(f"      Updated ControlCount: {sum([v for k,v in props['ControlCount'].items() if k not in ['TestSuite', 'TestCase']])} controls")
+
             # 4. Package as .msapp
-            print("[4/5] Packaging enhanced .msapp...")
+            print("[4/6] Packaging enhanced .msapp...")
             with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zip_out:
                 for file_path in temp_dir.rglob('*'):
                     if file_path.is_file():
@@ -599,7 +620,7 @@ Screens:
                         zip_out.write(file_path, arcname)
 
             # 5. Verify
-            print("[5/5] Verifying output...")
+            print("[5/6] Verifying output...")
             file_size = output_path.stat().st_size
             print(f"      File size: {file_size:,} bytes ({file_size / 1024:.1f} KB)")
 
