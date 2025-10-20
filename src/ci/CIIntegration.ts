@@ -53,98 +53,40 @@ export class CIIntegration {
     const workflowDir = path.join(outputDir, '.github', 'workflows');
     await fs.ensureDir(workflowDir);
 
-    const workflow = {
-      name: 'Build Power Apps',
-      on: {
-        push: {
-          branches: options.triggerBranches || ['main', 'develop']
-        },
-        pull_request: {
-          branches: options.triggerBranches || ['main']
-        }
-      },
-      jobs: {
-        build: {
-          'runs-on': 'ubuntu-latest',
-          steps: [
-            {
-              name: 'Checkout code',
-              uses: 'actions/checkout@v4'
-            },
-            {
-              name: 'Setup Node.js',
-              uses: 'actions/setup-node@v4',
-              with: {
-                'node-version': '18',
-                'cache': 'npm'
-              }
-            },
-            {
-              name: 'Install Power Platform CLI',
-              run: 'npm install -g @microsoft/powerplatform-cli'
-            },
-            {
-              name: 'Install dependencies',
-              run: 'npm ci'
-            },
-            {
-              name: 'Validate source code',
-              run: 'npx msapp-gen validate -s ./src -c ./msapp-generator.config.json'
-            },
-            {
-              name: 'Build .msapp packages',
-              run: 'npx msapp-gen generate -s ./src -o ./dist/app.msapp -c ./msapp-generator.config.json'
-            },
-            {
-              name: 'Upload artifacts',
-              uses: 'actions/upload-artifact@v4',
-              with: {
-                name: 'msapp-packages',
-                path: './dist/*.msapp'
-              }
-            }
-          ]
-        }
-      }
-    };
+    const pushBranches = options.triggerBranches || ['main', 'develop'];
+    const pullBranches = options.triggerBranches || ['main'];
+
+    const stepBlocks: string[] = [
+      `      - name: Checkout code\n        uses: actions/checkout@v4`,
+      `      - name: Setup Node.js\n        uses: actions/setup-node@v4\n        with:\n          node-version: 18\n          cache: npm`,
+      `      - name: Install Power Platform CLI\n        run: npm install -g @microsoft/powerplatform-cli`,
+      `      - name: Install dependencies\n        run: npm ci`
+    ];
 
     if (options.includeTests) {
-      workflow.jobs.build.steps.splice(-2, 0, {
-        name: 'Run tests',
-        run: 'npm test'
-      });
+      stepBlocks.push(`      - name: Run tests\n        run: npm test`);
     }
 
+    stepBlocks.push(
+      `      - name: Validate source code\n        run: npx msapp-gen validate -s ./src -c ./msapp-generator.config.json`,
+      `      - name: Build .msapp packages\n        run: npx msapp-gen generate -s ./src -o ./dist/app.msapp -c ./msapp-generator.config.json`,
+      `      - name: Upload artifacts\n        uses: actions/upload-artifact@v4\n        with:\n          name: msapp-packages\n          path: ./dist/*.msapp`
+    );
+
+    let deployJob = '';
     if (options.deploymentEnvironments && options.deploymentEnvironments.length > 0) {
-      (workflow.jobs as any).deploy = {
-        'runs-on': 'ubuntu-latest',
-        needs: 'build',
-        if: "github.ref == 'refs/heads/main'",
-        strategy: {
-          matrix: {
-            environment: options.deploymentEnvironments
-          }
-        },
-        steps: [
-          {
-            name: 'Download artifacts',
-            uses: 'actions/download-artifact@v4',
-            with: {
-              name: 'msapp-packages',
-              path: './dist'
-            }
-          },
-          {
-            name: 'Deploy to Power Platform',
-            run: `pac solution import --path ./dist/app.msapp --environment \${{ matrix.environment }}`
-          }
-        ]
-      };
+      const environmentLines = options.deploymentEnvironments
+        .map(env => `          - ${env}`)
+        .join('\n');
+
+      deployJob = `\n  deploy:\n    runs-on: ubuntu-latest\n    needs: build\n    if: github.ref == 'refs/heads/main'\n    strategy:\n      matrix:\n        environment:\n${environmentLines}\n    steps:\n      - name: Download artifacts\n        uses: actions/download-artifact@v4\n        with:\n          name: msapp-packages\n          path: ./dist\n      - name: Deploy to Power Platform\n        run: pac solution import --path ./dist/app.msapp --environment \${{ matrix.environment }}`;
     }
+
+    const workflowContent = `# Auto-generated GitHub Actions workflow for Power Apps\nname: Build Power Apps\non:\n  push:\n    branches:\n${pushBranches.map(branch => `      - ${branch}`).join('\n')}\n  pull_request:\n    branches:\n${pullBranches.map(branch => `      - ${branch}`).join('\n')}\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n${stepBlocks.join('\n')}\n${deployJob}`.trim() + '\n';
 
     await fs.writeFile(
       path.join(workflowDir, 'build-powerapps.yml'),
-      `# Auto-generated GitHub Actions workflow for Power Apps\n${JSON.stringify(workflow, null, 2)}`,
+      workflowContent,
       'utf-8'
     );
   }
@@ -153,94 +95,42 @@ export class CIIntegration {
    * Generate Azure DevOps pipeline
    */
   private async generateAzureDevOps(outputDir: string, options: PipelineConfigOptions): Promise<void> {
-    const pipeline = {
-      trigger: options.triggerBranches || ['main', 'develop'],
-      pr: options.triggerBranches || ['main'],
-      pool: {
-        vmImage: 'ubuntu-latest'
-      },
-      variables: {
-        buildConfiguration: 'Release'
-      },
-      stages: [
-        {
-          stage: 'Build',
-          displayName: 'Build Power Apps',
-          jobs: [
-            {
-              job: 'BuildJob',
-              displayName: 'Build .msapp packages',
-              steps: [
-                {
-                  task: 'NodeTool@0',
-                  displayName: 'Setup Node.js',
-                  inputs: {
-                    versionSpec: '18.x'
-                  }
-                },
-                {
-                  script: 'npm install -g @microsoft/powerplatform-cli',
-                  displayName: 'Install Power Platform CLI'
-                },
-                {
-                  script: 'npm ci',
-                  displayName: 'Install dependencies'
-                },
-                {
-                  script: 'npx msapp-gen validate -s ./src -c ./msapp-generator.config.json',
-                  displayName: 'Validate source code'
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    };
+    const pipelineDir = outputDir;
+    await fs.ensureDir(pipelineDir);
+
+    const triggerBranches = options.triggerBranches || ['main', 'develop'];
+    const prBranches = options.triggerBranches || ['main'];
+
+    const buildSteps: string[] = [
+      `          - task: NodeTool@0\n            displayName: Setup Node.js\n            inputs:\n              versionSpec: 18.x`,
+      `          - script: npm install -g @microsoft/powerplatform-cli\n            displayName: Install Power Platform CLI`,
+      `          - script: npm ci\n            displayName: Install dependencies`,
+      `          - script: npx msapp-gen validate -s ./src -c ./msapp-generator.config.json\n            displayName: Validate source code`
+    ];
 
     if (options.includeTests) {
-      pipeline.stages[0].jobs[0].steps.push({
-        script: 'npm test',
-        displayName: 'Run tests'
-      });
+      buildSteps.push(`          - script: npm test\n            displayName: Run tests`);
     }
 
-    pipeline.stages[0].jobs[0].steps.push(
-      {
-        script: 'npx msapp-gen generate -s ./src -o ./dist/app.msapp -c ./msapp-generator.config.json',
-        displayName: 'Build .msapp packages'
-      },
-      {
-        task: 'PublishBuildArtifacts@1',
-        displayName: 'Publish artifacts',
-        inputs: {
-          PathtoPublish: './dist',
-          ArtifactName: 'msapp-packages'
-        } as any
-      }
+    buildSteps.push(
+      `          - script: npx msapp-gen generate -s ./src -o ./dist/app.msapp -c ./msapp-generator.config.json\n            displayName: Build .msapp packages`,
+      `          - task: PublishBuildArtifacts@1\n            displayName: Publish artifacts\n            inputs:\n              PathtoPublish: ./dist\n              ArtifactName: msapp-packages`
     );
 
+    let deployStage = '';
     if (options.deploymentEnvironments && options.deploymentEnvironments.length > 0) {
-      (pipeline.stages as any).push({
-        stage: 'Deploy',
-        displayName: 'Deploy to Power Platform',
-        dependsOn: 'Build',
-        condition: "eq(variables['Build.SourceBranch'], 'refs/heads/main')",
-        jobs: options.deploymentEnvironments.map(env => ({
-          job: `Deploy_${env}`,
-          displayName: `Deploy to ${env}`,
-          steps: [
-            {
-              script: `pac solution import --path ./dist/app.msapp --environment ${env}`,
-              displayName: `Deploy to ${env}`
-            }
-          ]
-        }))
-      });
+      const deployJobs = options.deploymentEnvironments
+        .map(env => `      - job: Deploy_${env}\n        displayName: Deploy to ${env}\n        steps:\n          - script: pac solution import --path ./dist/app.msapp --environment ${env}\n            displayName: Deploy to ${env}`)
+        .join('\n');
+
+      deployStage = `\n  - stage: Deploy\n    displayName: Deploy to Power Platform\n    dependsOn: Build\n    condition: eq(variables['Build.SourceBranch'], 'refs/heads/main')\n    jobs:\n${deployJobs}`;
     }
+
+    const pipelineContent = `# Auto-generated Azure DevOps pipeline for Power Apps\ntrigger:\n${triggerBranches.map(branch => `  - ${branch}`).join('\n')}\npr:\n${prBranches.map(branch => `  - ${branch}`).join('\n')}\npool:\n  vmImage: ubuntu-latest\nvariables:\n  buildConfiguration: Release\nstages:\n  - stage: Build\n    displayName: Build Power Apps\n    jobs:\n      - job: BuildJob\n        displayName: Build .msapp packages\n        steps:\n${buildSteps.join('\n')}\n${deployStage}`.trim() + '\n';
 
     await fs.writeFile(
       path.join(outputDir, 'azure-pipelines.yml'),
-      `# Auto-generated Azure DevOps pipeline for Power Apps\n${JSON.stringify(pipeline, null, 2)}`,
+      pipelineContent,
       'utf-8'
     );
   }

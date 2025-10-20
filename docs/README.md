@@ -144,6 +144,19 @@ Validate source code without generating package:
 msapp-gen validate -s ./src -c ./config.json
 ```
 
+### Package Integrity Checks
+
+The validator now inspects generated `.msapp` archives to prevent corrupt uploads:
+
+- Confirms `App.json`, `Manifest.json`, and `Properties.json` exist at the archive root (no nested folders).
+- Verifies manifest schema casing, required keys (`FormatVersion`, `AppVersion`, `ScreenOrder`, `Properties`), and warns on unexpected format versions.
+- Parses all JSON metadata as UTF-8 and surfaces syntax errors before import time.
+- Ensures every media reference in `Resources.json` resolves to an actual file in the package.
+- Flags duplicate `ControlId` values across `.fx` files so cloned controls do not collide in Studio.
+- Attempts a `pac canvas unpack` smoke test when the Power Platform CLI is installed, warning when the CLI is unavailable.
+
+These checks run automatically during `validate` and `generate` flows, causing the build to fail fast when packaging would otherwise produce an `Error opening file` message inside Power Apps Studio.
+
 ### Batch Command
 
 Process multiple applications in batch:

@@ -24,7 +24,9 @@
   "author": "Natural England Development Team",
   "license": "MIT",
   "dependencies": {
+    "@types/adm-zip": "^0.5.7",
     "@types/archiver": "^6.0.3",
+    "adm-zip": "^0.5.16",
     "archiver": "^7.0.1",
     "chalk": "^4.1.2",
     "commander": "^11.1.0",

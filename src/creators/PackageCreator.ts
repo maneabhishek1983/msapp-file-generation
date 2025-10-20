@@ -59,22 +59,26 @@ export class PackageCreator implements IPackageCreator {
 
       // Extract existing package to temporary directory
       const extractDir = path.join(this.tempDir, 'extract_' + Date.now());
-      await fs.ensureDir(extractDir);
+      const packageRoot = path.join(extractDir, 'package');
+      await fs.ensureDir(packageRoot);
 
       // Write buffer to temporary file for extraction
       const tempPackagePath = path.join(extractDir, 'temp.msapp');
       await fs.writeFile(tempPackagePath, packageBuffer);
 
       // Extract package (assuming it's a ZIP file)
-      await this.extractArchive(tempPackagePath, extractDir);
+      await this.extractArchive(tempPackagePath, packageRoot);
+
+      // Temporary archive is no longer needed after extraction
+      await fs.remove(tempPackagePath);
 
       // Add resources to the package
-      const resourcesDir = path.join(extractDir, 'Resources');
+      const resourcesDir = path.join(packageRoot, 'Resources');
       await fs.ensureDir(resourcesDir);
 
       for (const resource of resources) {
         const resourcePath = path.resolve(resource.path);
-        
+
         if (!await fs.pathExists(resourcePath)) {
           throw new MSAppGeneratorError(
             `Resource file not found: ${resourcePath}`,
@@ -92,12 +96,15 @@ export class PackageCreator implements IPackageCreator {
         );
 
         // Update resource manifest
-        await this.updateResourceManifest(extractDir, resource, resourceFileName);
+        await this.updateResourceManifest(packageRoot, resource, resourceFileName);
       }
 
       // Recreate the package with resources
-      const newPackagePath = path.join(extractDir, 'updated.msapp');
-      const updatedBuffer = await this.createArchive(extractDir, newPackagePath);
+      const newPackagePath = path.join(this.tempDir, `updated_${Date.now()}.msapp`);
+      const updatedBuffer = await this.createArchive(packageRoot, newPackagePath);
+
+      // Remove the regenerated package file from the temp directory
+      await fs.remove(newPackagePath);
 
       // Cleanup
       await fs.remove(extractDir);
