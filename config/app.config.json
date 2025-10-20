@@ -1,0 +1,25 @@
+{
+  "app": {
+    "name": "ConditionAssessmentApp",
+    "displayName": "Condition Assessment - Natural England",
+    "description": "Used by NE staff to assess SSSI condition and upload results to NRMS.",
+    "version": "1.0.0.0",
+    "publisher": {
+      "name": "NaturalEngland",
+      "displayName": "Natural England",
+      "prefix": "necond",
+      "uniqueName": "ne_condition"
+    }
+  },
+  "screens": ["src/screens/*.fx"],
+  "components": ["src/components/*.fx"],
+  "connections": [],
+  "resources": [
+    {"name": "NE_Logo", "type": "image", "path": "resources/images/NE_logo.png"},
+    {"name": "Heathland_Banner", "type": "image", "path": "resources/images/heathland_banner.jpg"}
+  ],
+  "settings": {
+    "themeColor": "#1F4D3A",
+    "supportContact": "NRMS Support <nrms.support@defra.gov.uk>"
+  }
+}

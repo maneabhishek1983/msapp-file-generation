@@ -1,0 +1,104 @@
+# Auto-generated Azure DevOps pipeline for Power Apps
+{
+  "trigger": [
+    "main",
+    "develop"
+  ],
+  "pr": [
+    "main",
+    "develop"
+  ],
+  "pool": {
+    "vmImage": "ubuntu-latest"
+  },
+  "variables": {
+    "buildConfiguration": "Release"
+  },
+  "stages": [
+    {
+      "stage": "Build",
+      "displayName": "Build Power Apps",
+      "jobs": [
+        {
+          "job": "BuildJob",
+          "displayName": "Build .msapp packages",
+          "steps": [
+            {
+              "task": "NodeTool@0",
+              "displayName": "Setup Node.js",
+              "inputs": {
+                "versionSpec": "18.x"
+              }
+            },
+            {
+              "script": "npm install -g @microsoft/powerplatform-cli",
+              "displayName": "Install Power Platform CLI"
+            },
+            {
+              "script": "npm ci",
+              "displayName": "Install dependencies"
+            },
+            {
+              "script": "npx msapp-gen validate -s ./src -c ./msapp-generator.config.json",
+              "displayName": "Validate source code"
+            },
+            {
+              "script": "npm test",
+              "displayName": "Run tests"
+            },
+            {
+              "script": "npx msapp-gen generate -s ./src -o ./dist/app.msapp -c ./msapp-generator.config.json",
+              "displayName": "Build .msapp packages"
+            },
+            {
+              "task": "PublishBuildArtifacts@1",
+              "displayName": "Publish artifacts",
+              "inputs": {
+                "PathtoPublish": "./dist",
+                "ArtifactName": "msapp-packages"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "stage": "Deploy",
+      "displayName": "Deploy to Power Platform",
+      "dependsOn": "Build",
+      "condition": "eq(variables['Build.SourceBranch'], 'refs/heads/main')",
+      "jobs": [
+        {
+          "job": "Deploy_DEV",
+          "displayName": "Deploy to DEV",
+          "steps": [
+            {
+              "script": "pac solution import --path ./dist/app.msapp --environment DEV",
+              "displayName": "Deploy to DEV"
+            }
+          ]
+        },
+        {
+          "job": "Deploy_UAT",
+          "displayName": "Deploy to UAT",
+          "steps": [
+            {
+              "script": "pac solution import --path ./dist/app.msapp --environment UAT",
+              "displayName": "Deploy to UAT"
+            }
+          ]
+        },
+        {
+          "job": "Deploy_PROD",
+          "displayName": "Deploy to PROD",
+          "steps": [
+            {
+              "script": "pac solution import --path ./dist/app.msapp --environment PROD",
+              "displayName": "Deploy to PROD"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
