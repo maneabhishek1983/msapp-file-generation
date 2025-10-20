@@ -124,14 +124,6 @@ Screens:
                     =RGBA(255, 255, 255, 1)
                   Height: |+
                     =100
-                  RadiusBottomLeft: |+
-                    =8
-                  RadiusBottomRight: |+
-                    =8
-                  RadiusTopLeft: |+
-                    =8
-                  RadiusTopRight: |+
-                    =8
                   Width: |+
                     =Parent.TemplateWidth - 20
                   X: |+
@@ -240,14 +232,6 @@ Screens:
                     =RGBA(255, 255, 255, 1)
                   Height: |+
                     =80
-                  RadiusBottomLeft: |+
-                    =4
-                  RadiusBottomRight: |+
-                    =4
-                  RadiusTopLeft: |+
-                    =4
-                  RadiusTopRight: |+
-                    =4
                   Width: |+
                     =Parent.TemplateWidth - 10
                   X: |+
