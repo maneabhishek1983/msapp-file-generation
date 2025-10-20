@@ -1,10 +1,14 @@
 import * as fs from 'fs-extra';
+import * as os from 'os';
 import * as path from 'path';
 import { IValidationEngine } from '../interfaces';
 import { ValidationResult, DependencyResult, ErrorCategory } from '../types';
 import { MSAppGeneratorError } from '../errors';
 import { FXParser } from '../parsers/FXParser';
 import { MetadataProcessor } from '../processors/MetadataProcessor';
+import { PowerFxHeuristics } from './PowerFxHeuristics';
+import AdmZip from 'adm-zip';
+import { glob } from 'glob';
 
 /**
  * Comprehensive validation engine for Power Apps source code and packages
@@ -12,10 +16,12 @@ import { MetadataProcessor } from '../processors/MetadataProcessor';
 export class ValidationEngine implements IValidationEngine {
   private fxParser: FXParser;
   private metadataProcessor: MetadataProcessor;
+  private heuristics: PowerFxHeuristics;
 
   constructor() {
     this.fxParser = new FXParser();
     this.metadataProcessor = new MetadataProcessor();
+    this.heuristics = new PowerFxHeuristics();
   }
 
   async validateSourceCode(sourceDir: string): Promise<ValidationResult> {
@@ -47,6 +53,9 @@ export class ValidationEngine implements IValidationEngine {
 
       // Check for common issues
       await this.validateCommonIssues(sourceDir, errors, warnings);
+
+      // Run heuristic guardrails for known Canvas app pitfalls
+      await this.heuristics.analyze(sourceDir, errors, warnings);
 
       return {
         isValid: errors.length === 0,
@@ -83,7 +92,9 @@ export class ValidationEngine implements IValidationEngine {
       }
 
       // Validate file extension
-      if (!packagePath.toLowerCase().endsWith('.msapp')) {
+      const hasMsappExtension = packagePath.toLowerCase().endsWith('.msapp');
+
+      if (!hasMsappExtension) {
         warnings.push({
           message: 'Package file should have .msapp extension',
           file: packagePath
@@ -105,8 +116,10 @@ export class ValidationEngine implements IValidationEngine {
         });
       }
 
-      // Validate package structure (would require extraction)
-      await this.validatePackageStructure(packagePath, errors, warnings);
+      // Validate package structure (extract and inspect manifest/resources)
+      if (hasMsappExtension) {
+        await this.validatePackageStructure(packagePath, errors, warnings);
+      }
 
       return {
         isValid: errors.length === 0,
@@ -491,10 +504,221 @@ export class ValidationEngine implements IValidationEngine {
     }
   }
 
+  private async validateManifestSchema(extractedDir: string, errors: any[], warnings: any[]): Promise<void> {
+    const manifestPath = path.join(extractedDir, 'Manifest.json');
+    const manifest = await this.readJsonFile(manifestPath, 'Manifest.json', errors);
+
+    if (!manifest) {
+      return;
+    }
+
+    const requiredKeys = ['AppVersion', 'FormatVersion', 'Properties', 'ScreenOrder'];
+
+    for (const key of requiredKeys) {
+      if (!(key in manifest)) {
+        const lowerKey = key.charAt(0).toLowerCase() + key.slice(1);
+        if (lowerKey in manifest) {
+          errors.push({
+            message: `Manifest key '${key}' is missing or mis-cased. Use exact casing '${key}'.`,
+            category: ErrorCategory.VALIDATION,
+            file: 'Manifest.json'
+          });
+        } else {
+          errors.push({
+            message: `Manifest key '${key}' is required.`,
+            category: ErrorCategory.VALIDATION,
+            file: 'Manifest.json'
+          });
+        }
+      }
+    }
+
+    if (manifest.FormatVersion && manifest.FormatVersion !== '2.0') {
+      warnings.push({
+        message: `Unexpected manifest FormatVersion '${manifest.FormatVersion}'. Expected '2.0'.`,
+        category: ErrorCategory.VALIDATION,
+        file: 'Manifest.json'
+      });
+    }
+
+    if (manifest.ScreenOrder && !Array.isArray(manifest.ScreenOrder)) {
+      errors.push({
+        message: 'Manifest ScreenOrder must be an array of screen identifiers.',
+        category: ErrorCategory.VALIDATION,
+        file: 'Manifest.json'
+      });
+    }
+
+    if (manifest.Properties === null || (manifest.Properties && typeof manifest.Properties !== 'object')) {
+      errors.push({
+        message: 'Manifest Properties section must be an object.',
+        category: ErrorCategory.VALIDATION,
+        file: 'Manifest.json'
+      });
+    }
+
+    if (Array.isArray(manifest.ScreenOrder) && manifest.ScreenOrder.length === 0) {
+      warnings.push({
+        message: 'Manifest ScreenOrder is empty. App may not have a deterministically ordered start screen.',
+        category: ErrorCategory.VALIDATION,
+        file: 'Manifest.json'
+      });
+    }
+  }
+
+  private async readJsonFile(filePath: string, label: string, errors: any[]): Promise<any | undefined> {
+    if (!await fs.pathExists(filePath)) {
+      errors.push({
+        message: `${label} is missing from the package.`,
+        category: ErrorCategory.VALIDATION,
+        file: label
+      });
+      return undefined;
+    }
+
+    try {
+      const raw = await fs.readFile(filePath, 'utf8');
+      return JSON.parse(raw);
+    } catch (error) {
+      errors.push({
+        message: `${label} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+        category: ErrorCategory.SYNTAX,
+        file: label
+      });
+      return undefined;
+    }
+  }
+
+  private async validateExtractedResources(extractedDir: string, errors: any[], warnings: any[]): Promise<void> {
+    const candidatePaths = [
+      path.join(extractedDir, 'Resources.json'),
+      path.join(extractedDir, 'Resources', 'Resources.json'),
+      path.join(extractedDir, 'References', 'Resources.json')
+    ];
+
+    let resourcesPath: string | undefined;
+    for (const candidate of candidatePaths) {
+      if (await fs.pathExists(candidate)) {
+        resourcesPath = candidate;
+        break;
+      }
+    }
+
+    if (!resourcesPath) {
+      warnings.push({
+        message: 'Resources.json not found in package. Media references cannot be validated.',
+        category: ErrorCategory.VALIDATION
+      });
+      return;
+    }
+
+    const resourcesJson = await this.readJsonFile(resourcesPath, path.basename(resourcesPath), errors);
+
+    if (!resourcesJson) {
+      return;
+    }
+
+    const resourceEntries = Array.isArray(resourcesJson.Resources)
+      ? resourcesJson.Resources
+      : Array.isArray(resourcesJson.Media)
+        ? resourcesJson.Media
+        : [];
+
+    for (const resource of resourceEntries) {
+      const relativePath: string | undefined = resource?.Path || resource?.path || resource?.FilePath || resource?.filePath;
+      if (!relativePath) {
+        continue;
+      }
+
+      const normalized = relativePath.replace(/\\/g, '/');
+      const absolutePath = path.join(extractedDir, normalized);
+
+      if (!await fs.pathExists(absolutePath)) {
+        errors.push({
+          message: `Resource entry '${normalized}' is referenced but not present in the package.`,
+          category: ErrorCategory.VALIDATION,
+          file: path.relative(extractedDir, resourcesPath)
+        });
+      }
+    }
+  }
+
+  private async validateControlIdentifiers(extractedDir: string, errors: any[]): Promise<void> {
+    try {
+      const fxFiles = await glob('**/*.fx', { cwd: extractedDir, nodir: true });
+      const seenIds = new Map<string, string>();
+
+      for (const relativePath of fxFiles) {
+        const absolutePath = path.join(extractedDir, relativePath);
+        const content = await fs.readFile(absolutePath, 'utf8');
+        const regex = /ControlId\s*:\s*"([0-9a-fA-F-]{36})"/g;
+        let match: RegExpExecArray | null;
+
+        // eslint-disable-next-line no-cond-assign
+        while ((match = regex.exec(content)) !== null) {
+          const controlId = match[1].toLowerCase();
+          const existing = seenIds.get(controlId);
+
+          if (existing && existing !== relativePath) {
+            errors.push({
+              message: `Duplicate ControlId '${controlId}' found in ${relativePath} and ${existing}.`,
+              category: ErrorCategory.VALIDATION,
+              file: relativePath
+            });
+          } else if (!existing) {
+            seenIds.set(controlId, relativePath);
+          }
+        }
+      }
+    } catch (error) {
+      errors.push({
+        message: `Failed to validate control identifiers: ${error instanceof Error ? error.message : String(error)}`,
+        category: ErrorCategory.VALIDATION
+      });
+    }
+  }
+
+  private async runPacUnpackSmokeTest(packagePath: string, warnings: any[]): Promise<void> {
+    let pacAvailable = false;
+
+    try {
+      const { execSync } = require('child_process');
+      execSync('pac --version', { stdio: 'pipe' });
+      pacAvailable = true;
+    } catch (error) {
+      warnings.push({
+        message: 'Power Platform CLI (pac) not available. Skipping unpack smoke test.',
+        category: ErrorCategory.DEPENDENCY,
+        file: packagePath
+      });
+    }
+
+    if (!pacAvailable) {
+      return;
+    }
+
+    let unpackDir: string | undefined;
+
+    try {
+      const { execSync } = require('child_process');
+      unpackDir = await fs.mkdtemp(path.join(os.tmpdir(), 'msapp-pac-unpack-'));
+      execSync(`pac canvas unpack --msapp "${packagePath}" --sources "${unpackDir}"`, { stdio: 'pipe' });
+    } catch (error) {
+      warnings.push({
+        message: `Power Platform CLI failed to unpack package: ${error instanceof Error ? error.message : String(error)}`,
+        category: ErrorCategory.VALIDATION,
+        file: packagePath
+      });
+    } finally {
+      if (unpackDir) {
+        await fs.remove(unpackDir);
+      }
+    }
+  }
+
   private async validateCommonIssues(sourceDir: string, errors: any[], warnings: any[]): Promise<void> {
     try {
       // Check for files with special characters in names
-      const { glob } = require('glob');
       const allFiles = await glob('**/*', { cwd: sourceDir });
       
       for (const file of allFiles) {
@@ -550,23 +774,91 @@ export class ValidationEngine implements IValidationEngine {
   }
 
   private async validatePackageStructure(packagePath: string, errors: any[], warnings: any[]): Promise<void> {
-    // This would require extracting and examining the package
-    // For now, just basic file validation
+    let tempDir: string | undefined;
+
     try {
+      const initialErrorCount = errors.length;
       const stats = await fs.stat(packagePath);
-      
+
       if (stats.size < 1024) { // Less than 1KB
         warnings.push({
           message: 'Package file seems unusually small',
           file: packagePath
         });
       }
+
+      let zip: AdmZip;
+
+      try {
+        zip = new AdmZip(packagePath);
+      } catch (zipError) {
+        errors.push({
+          message: `Failed to read package archive: ${zipError instanceof Error ? zipError.message : String(zipError)}`,
+          category: ErrorCategory.VALIDATION,
+          file: packagePath
+        });
+        return;
+      }
+
+      const entries = zip.getEntries().filter(entry => !entry.isDirectory);
+
+      if (entries.length === 0) {
+        errors.push({
+          message: 'Package archive does not contain any files',
+          category: ErrorCategory.VALIDATION,
+          file: packagePath
+        });
+        return;
+      }
+
+      const hasRootFiles = entries.some(entry => !entry.entryName.includes('/'));
+      const firstSegments = new Set(entries.map(entry => entry.entryName.split('/')[0]));
+
+      if (!hasRootFiles && firstSegments.size === 1) {
+        errors.push({
+          message: `Package archive is nested under '${Array.from(firstSegments)[0]}'. Files must be stored at the root of the .msapp archive`,
+          category: ErrorCategory.VALIDATION,
+          file: packagePath
+        });
+        return;
+      }
+
+      const requiredFiles = ['App.json', 'Manifest.json', 'Properties.json'];
+      for (const required of requiredFiles) {
+        if (!entries.some(entry => entry.entryName === required)) {
+          const caseMismatch = entries.find(entry => entry.entryName.toLowerCase() === required.toLowerCase());
+          const suggestion = caseMismatch ? ` Did you mean '${caseMismatch.entryName}'?` : '';
+          errors.push({
+            message: `Missing required file '${required}' in package.${suggestion}`,
+            category: ErrorCategory.VALIDATION,
+            file: packagePath
+          });
+        }
+      }
+
+      if (errors.length > initialErrorCount) {
+        return;
+      }
+
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'msapp-validate-'));
+      zip.extractAllTo(tempDir, true);
+
+      await this.validateManifestSchema(tempDir, errors, warnings);
+      await this.readJsonFile(path.join(tempDir, 'App.json'), 'App.json', errors);
+      await this.readJsonFile(path.join(tempDir, 'Properties.json'), 'Properties.json', errors);
+      await this.validateExtractedResources(tempDir, errors, warnings);
+      await this.validateControlIdentifiers(tempDir, errors);
+      await this.runPacUnpackSmokeTest(packagePath, warnings);
     } catch (error) {
       errors.push({
         message: `Failed to validate package structure: ${error instanceof Error ? error.message : String(error)}`,
         category: ErrorCategory.VALIDATION,
         file: packagePath
       });
+    } finally {
+      if (tempDir) {
+        await fs.remove(tempDir);
+      }
     }
   }
 
